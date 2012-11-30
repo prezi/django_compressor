@@ -210,7 +210,59 @@ class Compressor(object):
                     command=command, filename=filename).input(**kwargs)
         return False, content
 
+    def get_cached_filter_hash(self, content, method):
+        import hashlib
+
+        try:
+            if isinstance(content, unicode):
+                content = content.encode('utf-8')
+
+            hash_parts = (
+                str(self.cached_filters),
+                content,
+                method,
+                )
+            hasher = hashlib.sha1()
+            for hash_part in hash_parts:
+                hasher.update(hash_part)
+            hash_value = hasher.hexdigest()
+        except Exception as exc:
+            print exc
+            raise
+        return hash_value
+
+    def get_cached_filter_result_path(self, hash):
+        base = settings.COMPRESS_FILTER_CACHE_PATH
+        return os.path.join(base, hash)
+
+    def get_cached_filter_result(self, cached_filter_hash):
+        if not settings.COMPRESS_FILTER_CACHE_PATH:
+            #not enabled
+            return None
+
+        try:
+            with open(self.get_cached_filter_result_path(cached_filter_hash), 'r') as f:
+                content = f.read()
+                print 'get_cached_filter_result FOUND', cached_filter_hash, content[:10] + '...'
+                return content
+        except IOError:
+            print 'get_cached_filter_result MISSING', cached_filter_hash
+            return None
+
+    def set_cached_filter_result(self, cached_filter_hash, content):
+        if not settings.COMPRESS_FILTER_CACHE_PATH:
+            #not enabled
+            return None
+
+        print 'set_cached_filter_result', cached_filter_hash, content[:10]+'...'
+        with open(self.get_cached_filter_result_path(cached_filter_hash), 'w') as f:
+            return f.write(content)
+
     def filter(self, content, method, **kwargs):
+        cached_filter_hash = self.get_cached_filter_hash(content, method)
+        cached_filter_result = self.get_cached_filter_result(cached_filter_hash)
+        if cached_filter_result:
+            return cached_filter_result
         for filter_cls in self.cached_filters:
             filter_func = getattr(
                 filter_cls(content, filter_type=self.type), method)
@@ -219,6 +271,7 @@ class Compressor(object):
                     content = filter_func(**kwargs)
             except NotImplementedError:
                 pass
+        self.set_cached_filter_result(cached_filter_hash, content)
         return content
 
     def output(self, mode='file', forced=False):
@@ -283,3 +336,4 @@ class Compressor(object):
                            mode=mode, context=final_context)
         template_name = self.get_template_name(mode)
         return render_to_string(template_name, context_instance=final_context)
+
