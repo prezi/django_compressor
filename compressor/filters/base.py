@@ -11,6 +11,8 @@ from compressor.conf import settings
 from compressor.exceptions import FilterError
 from compressor.utils import get_mod_func
 from compressor.utils.stringformat import FormattableString as fstr
+from compressor.cache import get_hexdigest
+from compressor.filecache import filecache_get, filecache_set
 
 logger = logging.getLogger("compressor.filters")
 
@@ -95,6 +97,12 @@ class CompilerFilter(FilterBase):
         self.infile, self.outfile = None, None
 
     def input(self, **kwargs):
+        if settings.COMPRESS_FILECACHE:
+            filecache_key = get_hexdigest(self.content.encode('utf8'))
+            filtered = filecache_get(filecache_key)
+            if filtered != None:
+                return filtered
+
         options = dict(self.options)
         if self.infile is None:
             if "{infile}" in self.command:
@@ -142,4 +150,7 @@ class CompilerFilter(FilterBase):
             if self.outfile is not None:
                 filtered = self.outfile.read()
                 self.outfile.close()
+
+        if settings.COMPRESS_FILECACHE:
+            filecache_set(filecache_key, filtered)
         return filtered
